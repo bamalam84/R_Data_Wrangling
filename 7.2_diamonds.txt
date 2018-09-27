@@ -1,0 +1,19 @@
+#Problem 7.2
+
+#Question 1: Which color diamonds seem to be largest on average (in terms of carats)?
+
+library(tidyverse)
+
+ggplot2::diamonds %>%
+  group_by(color) %>% #verb1 and args1
+  summarise(avgCarat = mean(carat, na.rm=TRUE)) %>% #verb2 and args2
+  arrange(desc(avgCarat)) %>% #args3
+  head(1)
+
+#Question 2: Which clarity of diamonds has the largest average "table" per carat?
+
+ggplot2::diamonds %>%
+  group_by(clarity) %>% #verb1 and args1
+  summarise(avgTableCarat = mean(table/carat, na.rm=TRUE)) %>% #verb2 and args2
+  arrange(desc(avgTableCarat)) %>% #args3
+  head(1)
