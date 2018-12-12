@@ -1,0 +1,151 @@
+---
+title: "R Notebook for Assignment 2"
+output: html_notebook
+---
+
+##Preliminary setup: Assign libraries & Import data
+```{r}
+#These libraries must be assigned each time the notebook is reopened.
+library(datasets)
+library(tidyverse)
+
+
+DiabData<-read_csv("diabetic_data.csv")
+
+#Examine data in viewer or print first 10 lines
+print(head(DiabData,10))
+
+DiagDesc<-read_csv("diagnosisdescriptions.csv")
+```
+##Question 1: Find out which race has the most readmissions (print this value).
+```{r}
+readmitsbyRace <- DiabData %>%
+  group_by(race) %>% 
+  filter(readmitted != 'NO') %>%
+  summarise(totalReadmits = n(), na.rm=TRUE) %>% 
+  arrange(desc(totalReadmits)) %>% 
+  head(1) 
+
+paste("Patients that are", readmitsbyRace$race[1], "have the most readmissions with", readmitsbyRace$totalReadmits[1], ".")
+```
+##Question 2: For patients with diabetes medications print the difference between the average number of lab procedures for men and women
+```{r}
+avgLabs <- DiabData %>%
+  filter(diabetesMed=='Yes') %>%
+  group_by(gender) %>%
+  summarise(avgLabProcs = mean(num_lab_procedures, na.rm = TRUE)) %>%
+  summarise(diff = (avgLabProcs[gender=="Female"] - avgLabProcs[gender=="Male"]))
+
+paste("On average, females have", round(avgLabs$diff[1], 4), "more lab procedures than males.")
+```
+##Question 3: Find out which sub-specialty has the most readmissions. Then print the breakdown for that sub-specialty by race.
+```{r}
+#Find sub-specialty with most readmits 
+topSpecialty<-DiabData %>%
+  filter(readmitted != 'NO', medical_specialty != "?") %>%
+  group_by(medical_specialty) %>%
+  summarise(numReadmits = n(), na.rm=TRUE) %>%
+  arrange(desc(numReadmits)) %>%
+  head(1)
+
+print(paste("The specialty with the most readmitted patients is", topSpecialty$medical_specialty[1]))
+
+#Print readmit numbers by race for top specialty
+DiabData %>%
+  filter(readmitted != 'NO', medical_specialty == topSpecialty$medical_specialty[1]) %>%
+  group_by(race) %>%
+  summarise(numReadmits = n(), na.rm=TRUE)
+```
+##Question 4: Find the average number of medications. Then find the number of patients that have more medications than this average and print the percent that have been readmitted
+```{r}
+#Calculate the average number of medications
+avgMeds <- mean(DiabData$num_medications,na.rm=TRUE)
+
+MoreAvgMeds <- DiabData %>%
+  filter(num_medications > avgMeds) %>%
+  mutate(readmit=ifelse(readmitted != 'NO', 1, 0)) %>%
+  summarise(percReadmit = (sum(readmit)/n())*100)
+
+print(paste("For patients with higher than average medication counts,", round(MoreAvgMeds, 2), "% were readmitted."))
+```
+##Question 5: Find out which broad category diagnosis_id is associated with the most under 30-day readmissions. NOTE: This is across all three diagnosis columns.  Print out the diagnosis description. You will need to join to the diagnosisdescription.csv file.
+```{r}
+diagDeep <- DiabData %>%
+  filter(readmitted == "<30") %>%
+  select(patient_nbr, encounter_id, diag_1, diag_2, diag_3) %>% #Get dx columns into single column 
+  gather('diag_1', 'diag_2', 'diag_3', key = "diagnosis", value = "code",  na.rm = TRUE) %>%
+  arrange (patient_nbr, encounter_id, diagnosis) %>%
+  separate('code', into=c('broad','sub'), sep='\\.') %>% #split off broad category
+  group_by(broad) %>%
+  summarise(broadCount = n()) %>%
+  left_join(DiagDesc, by=c("broad" = "DIAGNOSIS_CODE")) %>% #join to dx description
+  arrange(desc(broadCount)) %>%
+  head(1)
+         
+print(paste("The most common broad category diagnosis description is", diagDeep$DIAGNOSIS_DESCRIPTION[1], '.'))   
+```
+##Question 6: Remove any columns with more than 50% nulls.  Nulls are ?s in the dataset.
+```{r}
+numRows<-nrow(DiabData)
+DiabData2<-DiabData #create duplicate data to remove columns
+
+for(col in colnames(DiabData)){
+  nulls<-ifelse(DiabData[[col]] == '?', 1, 0)
+  percNull <- (sum(nulls) / numRows) #calculate percent null
+  if(percNull > 0.5){
+    DiabData2 <- DiabData2 %>% select(-col) #remove column if > 50% null
+  }
+}
+```
+##Question 7: For each age range find the percent of patients who were readmitted after 30 days and display the results in a bar chart.
+```{r}
+ggplot(data = DiabData %>%
+  group_by(age) %>%
+    mutate(readmit = ifelse(readmitted == '>30', 1, 0)) %>%
+    summarise(percReadmit = sum(readmit) / n())) +
+  geom_bar(mapping=aes(x=age,y=percReadmit), stat='identity')
+```
+##Question 8a.: Find out if patients on diabetes medication have a lower rate of  being readmitted whether they are readmitted before or after 30 days
+```{r}
+diabMed<-DiabData %>%
+    group_by(diabetesMed) %>%
+    mutate(readmit = ifelse(readmitted != 'NO', 1, 0)) %>%
+    summarise(percReadmit = sum(readmit) / n())
+
+print(paste("Patients on a diabetes medication readmit", round(diabMed$percReadmit[2], 4)*100, "% of the time compared to",
+  round(diabMed$percReadmit[1], 4)*100, "% for those that are not on a diabetes medication."))
+```
+##Question 8b: Modify part a by grouping by insulin. For each insulin category answer, the following: do patients on diabetes medication have a lower rate of being admitted? Display the data for the two following patient groups:  on and not on medication in one graph.  Describe anything you find significant or noteworthy. Hint (x should be insulin category).
+```{r}
+ggplot(data= DiabData %>%
+    group_by(diabetesMed, insulin) %>%
+    mutate(readmit = ifelse(readmitted != 'NO', 1, 0)) %>%
+    summarise(percReadmit = sum(readmit) / n())) +
+  geom_bar(mapping=aes(x=insulin,y=percReadmit), stat='identity') + facet_grid(. ~ diabetesMed)
+
+#Patients not on a diabetes medication nor insulin have the lowest rate of readmission compared to all patients taking a medication. For those on medication, there does not appear to be much difference in readmission rate amongst the various levels of insulin. 
+```
+##Question 9: Create a facet of three different scatter plots. The first scatterplot should have the count of patients who did not readmit for each category in number_diagnosis. The second scatter plot should have the count of patients who were readmitted before 30 days. and the last scatter plot should have patients who were admitted after 30 days.  What can you glean from these charts?
+```{r}
+scatters <- function(admit) {
+  ggplot(data=
+           DiabData %>%
+    group_by(number_diagnoses) %>%
+    mutate(readmit = ifelse(readmitted != admit, 1, 0)) %>%
+    summarise (numReadmit = sum(readmit))) +
+    geom_point(mapping=aes(x=number_diagnoses, y=numReadmit), stat='identity')
+}
+
+#Scatterplot 1
+scatters('NO')
+
+#Scatterplot 2
+scatters('<30')
+
+#Scatterplot 3
+scatters('>30')
+
+##These scatterplots reveal that the more diagnoses present in a hospital encounter, the higher the count of readmission. However, since the first scatterplot shows that this is true even for those that do not readmit, it could be assumed that most encounters usually give 10 diagnoses, and no more than 10 are ever given.
+```
+
+
